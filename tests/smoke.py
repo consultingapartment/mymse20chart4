@@ -48,6 +48,8 @@ def make_data(data_dir):
                 px *= 1 + rnd.gauss(0.0003, 0.012)
                 if k == "MFC" and d == date(2024, 6, 3):
                     px *= 0.1                               # бүртгэлтэй хуваалт
+                if k == "INV" and d == date(2026, 10, 5):
+                    px *= 0.1                               # бүртгэлгүй 1:10 хуваалт — автоматаар танигдах ёстой
                 if k == "SBM" and d == date(2025, 1, 6):
                     px *= 1.6                               # тайлбаргүй үсрэлт
                 bars[d.isoformat()] = dict(date=d.isoformat(), open=px, high=px, low=px, close=round(px, 2), qty=100, value=px * 100)
@@ -108,6 +110,10 @@ def main():
     check("nt" in inv["marks"], "INV: арилжаагүй сар таньсан")
     check(any("SBM" in n for n in ctx["notes"]), "SBM: тайлбаргүй ±15% анхааруулга")
     check(not any("хязгаар" in n and "MFC" in n for n in ctx["notes"]), "MFC: бүртгэлтэй хуваалт анхааруулгагүй")
+    oct_i = ctx["cols"].index("2026.10")
+    check(inv["vals"][oct_i] is not None and abs(inv["vals"][oct_i]) < 15, f"INV: 1:10 хуваалтын сар засагдсан ({inv['vals'][oct_i]:+.1f}%)")
+    check(any("INV" in n and "1:10" in n for n in ctx["notes"]), "INV: тайлбарт автомат хуваалт")
+    check(not any("хязгаар" in n and "INV" in n for n in ctx["notes"]), "INV: ⚠ анхааруулгагүй")
 
     r = run(["chart4.py", "all"], dict(env, REPORT_DIR=str(tmp / "total"), TOTAL_RETURN="1"))
     check(r.returncode == 0 and (tmp / "total" / "latest_yearly.png").exists(), "нийт өгөөжийн хувилбар")
@@ -123,6 +129,7 @@ def main():
 
     r = run(["alert.py", "--check-status"], env)
     check("4 компанийн" in r.stdout and "SBM" in r.stdout, "мэдэгдэл: татах алдаа + шинэ ±15%")
+    check("INV 2026-10-05: 1:10 хуваалт" in r.stdout, "мэдэгдэл: автомат хуваалт")
     r = run(["alert.py", "--check-status"], env)
     check("SBM 2025" not in r.stdout, "мэдэгдэл: ижил ±15%-ийг давтахгүй")
     json.dump({"cmd": "update", "ok": ["APU"], "failed": {k: "хуудаснаас ханшийн мөр олдсонгүй" for k in H.KEYS[1:]}},
