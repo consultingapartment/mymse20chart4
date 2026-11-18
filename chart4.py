@@ -325,6 +325,40 @@ def build_periods(kind, asof=None):
     for r in rows:
         v, m = r["s"].change(total_base, periods[-1][1])
         r["total"], r["total_mark"] = v, m
+    # зах зээлийн үнэлгээгээр жигнэсэн дундаж (ҮЦТХТ-ийн хувьцааны тоо × хуваалтаар засварласан хаалт, үеийн эхэнд)
+    try:
+        import shares as S
+        shs = S.load()
+    except Exception:  # noqa: BLE001
+        S, shs = None, {}
+
+    def mcap(r, d):
+        ser = shs.get(r["key"])
+        px = r["s"].close_at(d)
+        if not ser or not px:
+            return None
+        n, rd = S.shares_at(ser, d)
+        for d0, f, _ in applied.get(r["key"], []):          # тайлан хуваалтаас өмнөх бол шинэ нэгжид шилжүүлнэ
+            if date.fromisoformat(d0) > rd:
+                n /= f
+        return px * n
+
+    wavg, wns = [], []
+    bases = [(b, i) for i, (_, _, b) in enumerate(periods)] + [(total_base, None)]
+    for b, i in bases:
+        pairs = []
+        for r in rows:
+            v, m = (r["vals"][i], r["marks"][i]) if i is not None else (r["total"], r["total_mark"])
+            if v is None or m == "†":
+                continue
+            c = mcap(r, b)
+            if c:
+                pairs.append((c, v))
+        tot = sum(c for c, _ in pairs)
+        wavg.append(sum(c * v for c, v in pairs) / tot if tot else None)
+        wns.append(len(pairs))
+    has_w = shs and any(v is not None for v in wavg)
+    for r in rows:
         del r["s"]
     index_rows = []
     for code in INDEX_ROWS:
@@ -366,6 +400,10 @@ def build_periods(kind, asof=None):
         notes.append("† = үеийн дундаас түүх эхэлсэн тул өөрийн эхний хаалтаас тооцсон (бүтэн үе биш) — дундаж, өссөн/унасан тоонд ороогүй.")
     if any_nt:
         notes.append("\"арилжаагүй\" = тухайн үед нэг ч арилжаа болоогүй, хаалт өмнөхөөрөө (өөрчлөлт 0). Дундажид 0%-иар орсон.")
+    if has_w:
+        miss = sorted(set(r["key"] for r in rows) - set(shs))
+        notes.append("Үнэлгээгээр жигнэсэн = үеийн эхний зах зээлийн үнэлгээгээр (хаалт × ҮЦТХТ-ийн хувьцааны тоо) жигнэсэн дундаж"
+                     + (f"; хувьцааны тоо алга: {', '.join(miss)}" if miss else "") + ". Том компаниуд (KHAN г.м.) давамгайлна.")
     if index_rows:
         notes.append("Индекс = МХБ-ийн албан ёсны индекс (mse.mn), харьцуулах зорилгоор. Жин нь зах зээлийн үнэлгээгээр тул "
                      "дээрх тэнцүү жинтэй дунджаас ялгаатай. — = тухайн үеийн индексийн утга хадгалагдаагүй.")
@@ -380,6 +418,7 @@ def build_periods(kind, asof=None):
     ctx = dict(title=title, card_title=card_title, subtitle=sub, range=f"{periods[0][0]} → {plabel}", cols=[p[0] for p in periods],
                partial_last=partial, total_label=total_label, rows=rows, avg=avg, avg_total=avg_total, counts=counts, ns=ns,
                n_rows=len(rows), cap=cap, notes=notes, indices=index_rows,
+               wavg=wavg if has_w else None, wns=wns,
                kpis=[(f"{avg[-1]:+.1f}%" if avg[-1] is not None else "—", f"{plabel}: дундаж (тэнцүү жин)", POS if (avg[-1] or 0) >= 0 else NEG),
                      (str(counts[n - 1][0]), f"өссөн ({plabel})", POS), (str(counts[n - 1][1]), f"унасан ({plabel})", NEG),
                      (f"{best[0]} {best[1]:+.1f}%", "хамгийн их өссөн", POS), (f"{worst[0]} {worst[1]:+.1f}%", "хамгийн их унасан", NEG)])

@@ -156,6 +156,30 @@ def check_status():
                 new_breaks.append(f"{k} {b['prev_date']} → {b['date']}: {b['prev_close']:,.2f} → {b['close']:,.2f} ({b['change'] * 100:+.1f}%)")
     if new_stale:
         msgs.append(f"⏳ {stale_days}+ хоног шинэчлэгдээгүй ханш:\n" + "\n".join("• " + x for x in new_stale))
+    # ҮЦТХТ-ийн тайлангаар хуваалт (гараар ба автомат) баталгаажсан эсэх
+    reg_msgs, reg_keys = [], []
+    try:
+        import shares as S
+        shs = S.load()
+    except Exception:  # noqa: BLE001
+        S, shs = None, {}
+    if shs:
+        for k, bars in data.items():
+            closes = {d: x["close"] for d, x in bars.items()}
+            for d, f, note in H.effective_adjustments(k, closes, manual.get(k, [])):
+                if f == 1:
+                    continue
+                st, ratio = S.confirm_split(shs.get(k), d, f)
+                key = f"reg:{k}:{d}:{st}"
+                reg_keys.append(key)
+                if st in ("pending", "nodata") or key in seen.get("registry", []):
+                    continue
+                txt = {"confirmed": f"✅ {k} {d}: ×{f:g} хуваалтыг ҮЦТХТ-ийн хувьцааны тоо баталлаа",
+                       "corrected": f"🔁 {k} {d}: ҮЦТХТ-ийн харьцаа ×{ratio:.4g} (бүртгэсэн ×{f:g}) — шалгана уу",
+                       "contradicted": f"❓ {k} {d}: ×{f:g} засвар байгаа ч ҮЦТХТ-д хувьцааны тоо өөрчлөгдөөгүй — шалгана уу"}[st]
+                reg_msgs.append(txt)
+    if reg_msgs:
+        msgs.append("ҮЦТХТ-ийн тайлангаар хуваалтын шалгалт:\n" + "\n".join("• " + x for x in reg_msgs))
     if new_splits:
         msgs.append("✂ Хуваалт автоматаар танигдаж, чартад засагдлаа (буруу бол data/adjustments.csv-д тэр өдрийг factor=1 гэж бичнэ):\n"
                     + "\n".join("• " + x for x in new_splits))
@@ -165,7 +189,8 @@ def check_status():
                     "data/adjustments.csv-д нэмнэ үү:\n" + "\n".join("• " + x for x in shown)
                     + (f"\n… бас {len(new_breaks) - len(shown)}" if len(new_breaks) > len(shown) else ""))
     ALERTED.parent.mkdir(parents=True, exist_ok=True)
-    ALERTED.write_text(json.dumps({"stale": stale_now, "breaks": sorted(set(all_breaks))}, ensure_ascii=False, indent=1),
+    ALERTED.write_text(json.dumps({"stale": stale_now, "breaks": sorted(set(all_breaks)),
+                                   "registry": sorted(set(reg_keys) | set(seen.get("registry", [])))}, ensure_ascii=False, indent=1),
                        encoding="utf-8")
     if not msgs:
         print("Мэдэгдэх асуудал алга.")

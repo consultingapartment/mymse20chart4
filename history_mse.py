@@ -434,7 +434,43 @@ def effective_adjustments(key, closes, manual=None):
     if not AUTO_SPLIT:
         return manual
     have = {d for d, _, _ in manual}
-    return sorted(manual + [x for x in detect_splits(closes) if x[0] not in have])
+    autos = [x for x in detect_splits(closes) if x[0] not in have]
+    return sorted(manual + confirm_with_registry(key, closes, autos))
+
+
+def confirm_with_registry(key, closes, autos):
+    """Автомат хуваалтыг ҮЦТХТ-ийн хувьцааны тоогоор (data/history/shares.csv) шалгана:
+    баталсан → хэвээр · бүртгэлийн харьцаа өөр ба ханшийн үсрэлттэй нийцэж байвал → бүртгэлийн яг харьцаагаар солино ·
+    хувьцааны тоо өөрчлөгдөөгүй → засварыг цуцалж ⚠ үлдээнэ · дараах тайлан хараахан алга → түр хэрэглэнэ."""
+    if not autos:
+        return autos
+    try:
+        import shares as S
+        ser = S.load().get(key)
+    except Exception:  # noqa: BLE001
+        ser = None
+    if not ser:
+        return autos
+    ds = sorted(closes)
+    out = []
+    for d, f, note in autos:
+        st, ratio = S.confirm_split(ser, d, f)
+        if st == "confirmed":
+            out.append((d, f, note + " · ҮЦТХТ баталсан"))
+        elif st == "corrected":
+            i = ds.index(d)
+            price_ratio = closes[d] / closes[ds[i - 1]] if i > 0 else None
+            if price_ratio and (1 - DAILY_LIMIT) <= price_ratio / ratio <= (1 + DAILY_LIMIT):
+                out.append((d, ratio, f"автомат: ҮЦТХТ-ийн хувьцааны тооны харьцаа ×{ratio:.4g}"))
+            else:
+                out.append((d, f, note + f" · ҮЦТХТ-ийн харьцаа ×{ratio:.4g} нийцэхгүй — шалгах"))
+        elif st == "contradicted":
+            continue                    # хувьцааны тоо өөрчлөгдөөгүй → хуваалт биш байж магадгүй, ⚠ үлдэнэ
+        elif st == "pending":
+            out.append((d, f, note + " · ҮЦТХТ-ийн тайлан хүлээгдэж буй"))
+        else:
+            out.append((d, f, note))
+    return out
 
 
 def adjust(closes, adj_list):

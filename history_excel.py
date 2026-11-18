@@ -310,6 +310,59 @@ def build():
     if r == 2:
         ws.cell(row=2, column=1, value="Багцын арилжааны бүртгэл алга.").font = F
 
+    # ---------------------------------------------------------------- ҮЦТХТ: хувьцаа ба эзэмшил, зах зээлийн үнэлгээ
+    try:
+        import shares as S
+        shs = S.load()
+    except Exception:  # noqa: BLE001
+        S, shs = None, {}
+    if shs:
+        ws = wb.create_sheet("Хувьцаа ба эзэмшил")
+        rdates = sorted({t[0] for v in shs.values() for t in v})
+        last = rdates[-1]
+        header(ws, 1, ["Тикер", "Компани", f"Хувьцааны тоо ({last})", "5%+ эзэмшигчдийн хувь", "5%+ эзэмшигчид",
+                       "Чөлөөт эргэлт", "Олон нийтийн эзэмшигчид", ""] + [d.isoformat() for d in rdates],
+               [9, 30, 17, 13, 11, 12, 14, 3] + [14] * len(rdates))
+        for i, k in enumerate(ks, 2):
+            ser = shs.get(k)
+            ws.cell(row=i, column=1, value=k).font = FB
+            ws.cell(row=i, column=2, value=names.get(k, "")).font = F
+            if not ser:
+                ws.cell(row=i, column=3, value="ҮЦТХТ-ийн тайланд алга").font = F
+                continue
+            r_ = ser[-1][2]
+            for j, (v, fm) in enumerate(((int(float(r_["shares"])), "#,##0"), (float(r_["big_pct"]), "0.00%"), (int(float(r_["big_holders"])), "#,##0"),
+                                         (float(r_["free_float"]), "0.00%"), (int(float(r_["small_holders"])), "#,##0")), 3):
+                c = ws.cell(row=i, column=j, value=v)
+                c.number_format, c.font = fm, F
+            byd = {t[0]: t[1] for t in ser}
+            for j, d in enumerate(rdates, 9):
+                if d in byd:
+                    c = ws.cell(row=i, column=j, value=byd[d])
+                    c.number_format, c.font = "#,##0", F
+        ws.cell(row=len(ks) + 3, column=1, value="Эх сурвалж: ҮЦТХТ-ийн эзэмшлийн тайлан (uctht_concentration.xlsx). "
+                "Хувьцааны тооны өөрчлөлт бүр хуваалт биш (жишээ нь бүртгэлээс хассан хувьцаа).").font = Font(name=FONT, size=9, italic=True)
+        ws.freeze_panes = "C2"
+
+        ws = wb.create_sheet("Зах зээлийн үнэлгээ")
+        header(ws, 1, ["Сар"] + ks + ["Нийт"], [10] + [14] * (len(ks) + 1))
+        for i, m in enumerate(months, 2):
+            ws.cell(row=i, column=1, value=m).font = F
+            y, mo = map(int, m.split("-"))
+            mend = date(y + (mo == 12), mo % 12 + 1, 1) - timedelta(days=1)
+            for j, k in enumerate(ks, 2):
+                px, ser = last_in_month[k].get(m), shs.get(k)
+                if px is None or not ser or ser[0][0] > mend + timedelta(days=92):
+                    continue
+                n, _ = S.shares_at(ser, mend)
+                c = ws.cell(row=i, column=j, value=f"={px}*{n}")
+                c.number_format, c.font = "#,##0", F
+            c = ws.cell(row=i, column=len(ks) + 2, value=f"=SUM(B{i}:{get_column_letter(len(ks) + 1)}{i})")
+            c.number_format, c.font = "#,##0", FB
+        ws.cell(row=len(months) + 3, column=1, value="₮. Сарын сүүлийн хаалт × тухайн өдрийн буюу өмнөх ҮЦТХТ-ийн тайлангийн хувьцааны тоо "
+                "(2023-12-31-ний тайлангаас 3 сарын өмнөхөөс эхэлнэ). Хуваалтын сард тайлан хоцорсон бол тухайн сарын үнэлгээ зөрж болно.").font = Font(name=FONT, size=9, italic=True)
+        ws.freeze_panes = "B2"
+
     # ---------------------------------------------------------------- Индекс (ТОП-20, MSE A, MSE B)
     idx = {}
     for code in ("TOP20", "MSEA", "MSEB"):

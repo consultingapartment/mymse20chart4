@@ -109,7 +109,7 @@ def pt_table(c, x, y, w, h, ctx):
     sub = ctx["subtitle"]
     hh = head_h(c, sub, w)
     rh, hd = 36, 40
-    n_sum = 3 + len(ctx.get("indices") or [])      # дундаж, [индексүүд], өссөн/унасан, хамрагдсан компани
+    n_sum = 3 + len(ctx.get("indices") or []) + (1 if ctx.get("wavg") else 0)      # дундаж, [индексүүд], өссөн/унасан, хамрагдсан компани
     need = hh + hd + rh * (len(rows) + n_sum) + 24
     if c.dry:
         return need
@@ -165,6 +165,11 @@ def pt_table(c, x, y, w, h, ctx):
     for i, v in enumerate(ctx["avg"] + ([ctx["avg_total"]] if has_total else [])):
         cell(i, v, "", ctx["cap"] if i < len(cols) else ctx["cap"] * 2.2, dim=ctx["ns"][i] < full_n)
     yy += rh
+    if ctx.get("wavg"):
+        c.text(tx + 12, yy + rh / 2, "МХБ-н 20 (үнэлгээгээр)", 13.5, True, TXT, "lm", maxw=first - 16)
+        for i, v in enumerate(ctx["wavg"][:ncols]):
+            cell(i, v, "", ctx["cap"] if i < len(cols) else ctx["cap"] * 2.2)
+        yy += rh
     for ix in ctx.get("indices") or []:
         c.text(tx + 12, yy + rh / 2, ix["name"], 13.5, True, TXT, "lm", maxw=first - 16)
         for i, v in enumerate(ix["vals"] + ([ix["total"]] if has_total else [])):
