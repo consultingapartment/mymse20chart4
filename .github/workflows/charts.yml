@@ -69,6 +69,11 @@ jobs:
         continue-on-error: true
         run: python index_mse.py update
 
+      - name: 2b. ҮЦТХТ-ийн хувьцааны тоо (Huvitsaanii-Tuvlurul/data/uctht_concentration.xlsx)
+        if: always() && inputs.chart != 'history_probe'
+        continue-on-error: true
+        run: python shares.py update
+
       - name: 3. Татах алдааг шалгах (3-аас олон компани бол хувийн чат руу мэдэгдэнэ)
         if: always() && inputs.chart != 'history_probe'
         continue-on-error: true
