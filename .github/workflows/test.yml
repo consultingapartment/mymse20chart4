@@ -1,0 +1,27 @@
+name: chart4report — тест
+
+on:
+  push:
+    paths-ignore: ["data/**", "reports/**", "README.md"]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  smoke:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install -r requirements.txt
+      - run: sudo apt-get install -y --no-install-recommends fonts-liberation fonts-dejavu-core
+      - name: Зохиомол өгөгдлөөр бүх командыг шалгах
+        run: python tests/smoke.py
+      - name: Тест унавал хувийн чат руу мэдэгдэх
+        if: failure()
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_ADMIN_CHAT_ID: ${{ secrets.TELEGRAM_ADMIN_CHAT_ID }}
+        run: |
+          python alert.py "🧪 chart4report: кодын өөрчлөлтийн дараа тест унасан. Логийг шалгана уу."
