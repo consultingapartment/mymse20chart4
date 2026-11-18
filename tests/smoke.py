@@ -69,6 +69,20 @@ def make_data(data_dir):
             w = csv.writer(fh)
             w.writerow(["date", "close"])
             w.writerows(rows)
+    # ҮЦТХТ-ийн хувьцааны тоо: INV 2026-10-05-ны 1:10 хуваалт 10-р сарын тайланд тусгагдсан; MFG алга
+    with open(H.HIST_DIR / "shares.csv", "w", newline="", encoding="utf-8") as fh:
+        w = csv.writer(fh)
+        w.writerow(["date", "symbol", "code", "shares", "big_pct", "big_holders", "free_float", "small_holders"])
+        for i, k in enumerate(H.KEYS):
+            if k == "MFG":
+                continue
+            for dd in ("2023-12-31", "2024-12-31", "2025-12-31", "2026-09-30", "2026-10-31"):
+                n = (10 + i) * 10_000_000
+                if k == "INV" and dd == "2026-10-31":
+                    n *= 10
+                if k == "MFC" and dd >= "2024-12-31":
+                    n *= 10
+                w.writerow([dd, k, H.SEED_IDS[k], n, 0.8, 3, 0.2, 1000 + i])
     json.dump({"cmd": "update", "ok": H.KEYS[:-4], "failed": {k: "HTTP 503" for k in H.KEYS[-4:]}},
               open(H.STATUS_FILE, "w"), ensure_ascii=False)
     return H
@@ -112,7 +126,9 @@ def main():
     check(not any("хязгаар" in n and "MFC" in n for n in ctx["notes"]), "MFC: бүртгэлтэй хуваалт анхааруулгагүй")
     oct_i = ctx["cols"].index("2026.10")
     check(inv["vals"][oct_i] is not None and abs(inv["vals"][oct_i]) < 15, f"INV: 1:10 хуваалтын сар засагдсан ({inv['vals'][oct_i]:+.1f}%)")
-    check(any("INV" in n and "1:10" in n for n in ctx["notes"]), "INV: тайлбарт автомат хуваалт")
+    check(any("INV" in n and "1:10" in n and "ҮЦТХТ баталсан" in n for n in ctx["notes"]), "INV: автомат хуваалтыг ҮЦТХТ баталсан")
+    check(ctx.get("wavg") and ctx["wavg"][oct_i] is not None, "үнэлгээгээр жигнэсэн дундаж мөр")
+    check(any("MFG" in n and "хувьцааны тоо алга" in n for n in ctx["notes"]), "MFG: хувьцааны тоо алга гэж тэмдэглэсэн")
     check(not any("хязгаар" in n and "INV" in n for n in ctx["notes"]), "INV: ⚠ анхааруулгагүй")
 
     r = run(["chart4.py", "all"], dict(env, REPORT_DIR=str(tmp / "total"), TOTAL_RETURN="1"))
@@ -122,7 +138,8 @@ def main():
     check(r.returncode == 0 and (rep / "mse_history.xlsx").exists(), "Excel үүссэн")
     from openpyxl import load_workbook
     wb = load_workbook(rep / "mse_history.xlsx", read_only=True)
-    for sh in ("Хамрах хүрээ", "Өдрийн хаалт", "Сарын хаалт", "Бүх өгөгдөл", "15%-иас их өөрчлөлт", "Индекс", "Ногдол ашиг"):
+    for sh in ("Хамрах хүрээ", "Өдрийн хаалт", "Сарын хаалт", "Бүх өгөгдөл", "15%-иас их өөрчлөлт", "Индекс", "Ногдол ашиг",
+               "Хувьцаа ба эзэмшил", "Зах зээлийн үнэлгээ"):
         check(sh in wb.sheetnames, f"Excel: '{sh}' хуудас")
     r = run(["history_excel.py", "--max-age", "28"], env)
     check("шаардлагагүй" in r.stdout, "Excel: 28 хоногийн дотор дахин үүсгэхгүй")
@@ -130,6 +147,7 @@ def main():
     r = run(["alert.py", "--check-status"], env)
     check("4 компанийн" in r.stdout and "SBM" in r.stdout, "мэдэгдэл: татах алдаа + шинэ ±15%")
     check("INV 2026-10-05: 1:10 хуваалт" in r.stdout, "мэдэгдэл: автомат хуваалт")
+    check("✅ INV 2026-10-05" in r.stdout and "MFC 2024-06-03" in r.stdout, "мэдэгдэл: ҮЦТХТ-ийн баталгаажуулалт")
     r = run(["alert.py", "--check-status"], env)
     check("SBM 2025" not in r.stdout, "мэдэгдэл: ижил ±15%-ийг давтахгүй")
     json.dump({"cmd": "update", "ok": ["APU"], "failed": {k: "хуудаснаас ханшийн мөр олдсонгүй" for k in H.KEYS[1:]}},
