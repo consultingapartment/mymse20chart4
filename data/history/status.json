@@ -1,0 +1,27 @@
+{
+ "cmd": "backfill",
+ "time": "2026-11-18T13:14:45+00:00",
+ "ok": [
+  "AARD",
+  "ADB",
+  "APU",
+  "CUMN",
+  "GLMT",
+  "INV",
+  "KHAN",
+  "LEND",
+  "MFC",
+  "MNDL",
+  "MSE",
+  "QPAY",
+  "SBM",
+  "TDB",
+  "TTL",
+  "TUM",
+  "XAC",
+  "ERDN",
+  "GAZR",
+  "MFG"
+ ],
+ "failed": {}
+}
