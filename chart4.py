@@ -122,13 +122,16 @@ def load_daily(asof):
                     continue
         for key in daily:
             daily[key].sort()
-    # гараар бүртгэсэн засвар (data/adjustments.csv), дараа нь ±15%-иас их тайлбаргүй өөрчлөлтийг ⚠-ээр тэмдэглэнэ
+    # засвар: гараар бүртгэсэн (data/adjustments.csv) + автомат хуваалт (±15%-иас их, хуваалтын коэффициенттэй таарсан);
+    # засварын дараа ч ±15%-иас их өөрчлөлт үлдвэл ⚠-ээр тэмдэглэнэ
     adj, applied = H.load_adjustments(), {}
     for key, rows in daily.items():
-        if adj.get(key):
-            closes = H.adjust({d.isoformat(): c for d, c, _ in rows}, adj[key])
+        raw = {d.isoformat(): c for d, c, _ in rows}
+        lst = [x for x in H.effective_adjustments(key, raw, adj.get(key, [])) if x[1] != 1]
+        if lst:
+            closes = H.adjust(raw, lst)
             daily[key] = [(d, closes[d.isoformat()], q) for d, _, q in rows]
-            applied[key] = adj[key]
+            applied[key] = lst
         if H.limit_breaks({d.isoformat(): c for d, c, _ in daily[key]}):
             flags.add(key)
     return daily, flags, applied
@@ -367,7 +370,7 @@ def build_periods(kind, asof=None):
         notes.append("Индекс = МХБ-ийн албан ёсны индекс (mse.mn), харьцуулах зорилгоор. Жин нь зах зээлийн үнэлгээгээр тул "
                      "дээрх тэнцүү жинтэй дунджаас ялгаатай. — = тухайн үеийн индексийн утга хадгалагдаагүй.")
     if applied:
-        notes.append("Засвар хийсэн (хуваалт г.м., data/adjustments.csv): " + "; ".join(
+        notes.append("Хуваалтын засвар (өмнөх ханшийг шинэ хувьцааны тоонд шилжүүлсэн): " + "; ".join(
             f"{k} {d} ×{f:g}" + (f" ({t})" if t else "") for k in sorted(applied) for d, f, t in applied[k]))
     if flags:
         hit = sorted(k for k in flags if k in {r["key"] for r in rows})

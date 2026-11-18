@@ -129,8 +129,8 @@ def check_status():
     data = {k: H.read_csv(k) for k in H.KEYS}
     latest = max((max(b) for b in data.values() if b), default=None)
     stale_days = int(os.environ.get("ALERT_STALE_DAYS", "30"))
-    adj = H.load_adjustments()
-    stale_now, new_stale, new_breaks, all_breaks = [], [], [], []
+    manual = H.load_adjustments()
+    stale_now, new_stale, new_breaks, all_breaks, new_splits = [], [], [], [], []
     for k, bars in data.items():
         if not bars or not latest:
             continue
@@ -139,8 +139,16 @@ def check_status():
             stale_now.append(k)
             if k not in seen["stale"]:
                 new_stale.append(f"{k} (сүүлийн ханш {max(bars)}, {lag} хоног)")
-        for b in H.limit_breaks({d: x["close"] for d, x in bars.items()}):
-            if any(b["date"] == d for d, _, _ in adj.get(k, [])):
+        closes = {d: x["close"] for d, x in bars.items()}
+        eff = H.effective_adjustments(k, closes, manual.get(k, []))
+        for d, f, note in eff:
+            key = f"{k}:{d}"
+            if note.startswith("автомат"):
+                all_breaks.append(key)
+                if key not in seen["breaks"]:
+                    new_splits.append(f"{k} {d}: {note.replace('автомат: ', '')} (өмнөх ханш ×{f:g})")
+        for b in H.limit_breaks(closes):
+            if any(b["date"] == d for d, _, _ in eff):
                 continue
             key = f"{k}:{b['date']}"
             all_breaks.append(key)
@@ -148,6 +156,9 @@ def check_status():
                 new_breaks.append(f"{k} {b['prev_date']} → {b['date']}: {b['prev_close']:,.2f} → {b['close']:,.2f} ({b['change'] * 100:+.1f}%)")
     if new_stale:
         msgs.append(f"⏳ {stale_days}+ хоног шинэчлэгдээгүй ханш:\n" + "\n".join("• " + x for x in new_stale))
+    if new_splits:
+        msgs.append("✂ Хуваалт автоматаар танигдаж, чартад засагдлаа (буруу бол data/adjustments.csv-д тэр өдрийг factor=1 гэж бичнэ):\n"
+                    + "\n".join("• " + x for x in new_splits))
     if new_breaks:
         shown = new_breaks[:15]
         msgs.append(f"⚡ Өдрийн хязгаар (±{H.DAILY_LIMIT * 100:g}%)-аас их, тайлбаргүй шинэ өөрчлөлт — хуваалт бол "

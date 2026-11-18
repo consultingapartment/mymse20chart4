@@ -406,6 +406,37 @@ def load_adjustments():
     return out
 
 
+# Хуваалт (1:N) ба нэгтгэл (N:1)-ийн түгээмэл коэффициент. Хязгаараас (±15%) их өөрчлөлтийн харьцаа эдгээрийн аль нэгтэй
+# өдрийн хязгаарын дотор таарвал хуваалт гэж автоматаар засна.
+SPLIT_FACTORS = [1 / n for n in (2, 3, 4, 5, 8, 10, 20, 25, 50, 100)] + [2, 3, 4, 5, 10, 20, 50, 100]
+AUTO_SPLIT = os.environ.get("AUTO_SPLIT", "1") != "0"
+
+
+def detect_splits(closes):
+    """closes: {огноо: хаалт} → [(огноо, коэффициент, тайлбар)]. Коэффициент = шинэ/хуучин хувьцааны тооны урвуу
+    (1:10 хуваалт → 0.1): тэр өдрөөс өмнөх ханшийг үржүүлбэл шинэ ханштай харьцуулах боломжтой болно."""
+    out = []
+    for b in limit_breaks(closes):
+        ratio = b["close"] / b["prev_close"]
+        cands = [f for f in SPLIT_FACTORS if (1 - DAILY_LIMIT) <= ratio / f <= (1 + DAILY_LIMIT)]
+        if len(cands) != 1:
+            continue
+        f = cands[0]
+        note = f"автомат: 1:{round(1 / f)} хуваалт" if f < 1 else f"автомат: {round(f)}:1 нэгтгэл"
+        out.append((b["date"], f, note))
+    return out
+
+
+def effective_adjustments(key, closes, manual=None):
+    """Гараар бүртгэсэн засвар (data/adjustments.csv) + бүртгэгдээгүй өдрүүдийн автомат хуваалт.
+    adjustments.csv-д factor=1 гэж бичвэл тэр өдрийн автомат засварыг цуцална (жинхэнэ ханшийн өөрчлөлт гэж үзнэ)."""
+    manual = list(manual if manual is not None else load_adjustments().get(key, []))
+    if not AUTO_SPLIT:
+        return manual
+    have = {d for d, _, _ in manual}
+    return sorted(manual + [x for x in detect_splits(closes) if x[0] not in have])
+
+
 def adjust(closes, adj_list):
     """Засварын жагсаалтыг хаалтуудад хэрэглэнэ (огнооноос өмнөх ханш × коэффициент)."""
     if not adj_list:

@@ -104,7 +104,7 @@ def build():
     except ValueError:
         names = {}
     ids = H.load_ids()
-    adj = H.load_adjustments()
+    manual = H.load_adjustments()
     status = {}
     if H.STATUS_FILE.exists():
         try:
@@ -115,6 +115,7 @@ def build():
     ks = keys()
     latest_all = max((max(b) for b in data.values() if b), default=None)
     breaks = {k: H.limit_breaks({d: b["close"] for d, b in data[k].items()}) for k in ks}
+    adj = {k: H.effective_adjustments(k, {d: b["close"] for d, b in data[k].items()}, manual.get(k, [])) for k in ks}
 
     wb = Workbook()
     wb.calculation.fullCalcOnLoad = True
@@ -136,7 +137,9 @@ def build():
         ("Өдрийн хязгаар", f"Өдрийн ханшийн өөрчлөлтийн хязгаар ±{H.DAILY_LIMIT * 100:g}%. Үүнээс их өөрчлөлт (+1 ₮ алхмын зөрүүтэй) "
                            "ердийн арилжаагаар гарахгүй тул хувьцаа хуваалт, нэгтгэл эсвэл өгөгдлийн алдаа гэж үзэж "
                            "\"15%-иас их өөрчлөлт\" хуудсанд жагсаав."),
-        ("Засвар", "Хуваалт баталгаажвал data/adjustments.csv файлд мөр нэмнэ: symbol,date,factor,note "
+        ("Хуваалт", "±15%-иас их өөрчлөлтийн харьцаа хуваалтын коэффициенттэй (1:2, 1:10 г.м.) таарвал автоматаар хуваалт гэж "
+                    "засна. Буруу бол data/adjustments.csv-д тэр өдрийг factor=1 гэж бичиж цуцална."),
+        ("Засвар", "Автоматаар танигдаагүй хуваалтыг data/adjustments.csv файлд мөр нэмж бүртгэнэ: symbol,date,factor,note "
                    "(жишээ: MSE,2024-05-02,0.1,1:10 хуваалт — тэр өдрөөс өмнөх ханш ×0.1). Засвар зөвхөн 4 чартад хэрэглэгдэнэ, "
                    "энэ файлын тоо түүхий хэвээр."),
         ("Төлөв", f"OK · Өгөгдөлгүй · Татаж чадсангүй · Хуучирсан (сүүлийн өдөр бусдаас {STALE_DAYS}+ хоног хоцорсон) · "
@@ -154,7 +157,7 @@ def build():
     ws = wb.create_sheet("Хамрах хүрээ")
     titles = ["№", "Тикер", "Компани", "open.mse.mn хаяг", "Эхний өдөр", "Сүүлийн өдөр", "Арилжааны өдөр",
               "Хамгийн урт завсар (хоног)", "Завсрын эхлэл", "Завсрын төгсгөл", "Сүүлийн хаалт",
-              "Сүүлийн арилжаанаас хойш (хоног)", "15%-иас их өөрчлөлт", "Засвар (adjustments.csv)", "Төлөв"]
+              "Сүүлийн арилжаанаас хойш (хоног)", "15%-иас их өөрчлөлт", "Хуваалтын засвар", "Төлөв"]
     header(ws, 1, titles, [5, 9, 34, 38, 12, 12, 11, 13, 13, 13, 13, 14, 12, 26, 26])
     for i, k in enumerate(ks, 1):
         r = i + 1
@@ -167,7 +170,7 @@ def build():
             c = ws.cell(row=r, column=4, value=f"{H.BASE}/securities/{sid}")
             c.hyperlink, c.font = f"{H.BASE}/securities/{sid}", FL
         nb = len(breaks[k])
-        adj_txt = "; ".join(f"{d} ×{f:g}" for d, f, _ in adj.get(k, []))
+        adj_txt = "; ".join(f"{d} ×{f:g}" + (" (автомат)" if t.startswith("автомат") else "") for d, f, t in adj.get(k, []))
         unexplained = [b for b in breaks[k] if not any(b["date"] == d for d, _, _ in adj.get(k, []))]
         if k in failed and not cov:
             st, fill = f"Татаж чадсангүй: {failed[k]}"[:60], BAD
@@ -271,7 +274,8 @@ def build():
         for b in breaks[k]:
             hit = [(d, f, t) for d, f, t in adj.get(k, []) if d == b["date"]]
             row = [k, dt(b["prev_date"]), dt(b["date"]), b["prev_close"], b["close"], f"=E{r}/D{r}-1",
-                   (f"Тийм (×{hit[0][1]:g})" if hit else "Үгүй"), (hit[0][2] if hit else None)]
+                   ((f"Автомат (×{hit[0][1]:g})" if hit[0][2].startswith("автомат") else f"Тийм (×{hit[0][1]:g})") if hit else "Үгүй"),
+                   (hit[0][2] if hit else None)]
             fmts = [None, DATE_FMT, DATE_FMT, "#,##0.00", "#,##0.00", "0.0%;-0.0%;0.0%", None, None]
             for j, (v, fm) in enumerate(zip(row, fmts), 1):
                 if v is None:
