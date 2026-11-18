@@ -1,0 +1,130 @@
+name: chart4report — МХБ 4 чарт
+
+on:
+  schedule:
+    # Даваа–Баасан 13:30 (Улаанбаатар, UTC+8): хаалтын ханш ба ТОП-20 индексийг шинэчилж, шинэ сар эхэлсэн бол
+    # сүүлд дууссан сар (улирал / хагас жил / жил дууссан бол тэдгээрийг ч) чартыг нэг удаа илгээнэ
+    - cron: "30 5 * * 1-5"
+  workflow_dispatch:
+    inputs:
+      chart:
+        description: "all = 4 чарт · history_backfill = бүх түүхийг дахин татаж Excel үүсгэх · excel = зөвхөн Excel · history_probe = open.mse.mn шалгах"
+        type: choice
+        options: [auto, all, monthly, quarterly, halfyearly, yearly, excel, history_backfill, history_probe]
+        default: all
+      asof:
+        description: "Аль өдрөөр тооцох (YYYY-MM-DD, хоосон бол сүүлийн өгөгдлөөр)"
+        type: string
+        default: ""
+      force:
+        description: "Өмнө илгээсэн ч Telegram руу дахин илгээх (туршилтад)"
+        type: boolean
+        default: false
+
+permissions:
+  contents: write
+
+concurrency:
+  group: chart4report
+  cancel-in-progress: false
+
+env:
+  TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+  TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+  TELEGRAM_ADMIN_CHAT_ID: ${{ secrets.TELEGRAM_ADMIN_CHAT_ID }}
+  FORCE_SEND: ${{ inputs.force }}
+  ASOF: ${{ inputs.asof }}
+  CHART: ${{ inputs.chart }}
+
+jobs:
+  run:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install -r requirements.txt
+      - name: Фонт суулгах
+        run: sudo apt-get install -y --no-install-recommends fonts-liberation fonts-dejavu-core
+
+      - name: 1. Хаалтын ханш (open.mse.mn) — анх удаа бол бүх цаг үеийн түүх
+        continue-on-error: true
+        run: |
+          if [ "$CHART" = "history_probe" ]; then
+            python history_mse.py discover; python history_mse.py probe-list; python history_mse.py probe APU
+            python index_mse.py history || true
+            exit 0
+          fi
+          if [ ! -f data/history/security_ids.json ] || [ "$CHART" = "history_backfill" ]; then
+            python history_mse.py discover || echo "discover бүтэлгүйтэв — кодонд суусан 20 дугаараар үргэлжлүүлнэ"
+            python history_mse.py backfill
+            echo "BACKFILLED=1" >> "$GITHUB_ENV"
+          else
+            python history_mse.py update
+          fi
+
+      - name: 2. ТОП-20 индекс (mse.mn/mse-index — бүх түүх; бүтэлгүйтвэл members.mse.mn-ээс өнөөдрийн утга)
+        if: always() && inputs.chart != 'history_probe'
+        continue-on-error: true
+        run: python index_mse.py update
+
+      - name: 3. Татах алдааг шалгах (3-аас олон компани бол хувийн чат руу мэдэгдэнэ)
+        if: always() && inputs.chart != 'history_probe'
+        continue-on-error: true
+        run: python alert.py --check-status
+
+      - name: 4. Түүхийн Excel — шинэчлэгдвэл хувийн чат руу илгээнэ (git-д хадгалахгүй)
+        if: always() && inputs.chart != 'history_probe'
+        continue-on-error: true
+        run: |
+          if [ "$BACKFILLED" = "1" ] || [ "$CHART" = "excel" ]; then
+            python history_excel.py
+          else
+            python history_excel.py --max-age 28
+          fi
+          if [ -f reports/mse_history.xlsx ]; then
+            python alert.py --send-file reports/mse_history.xlsx "МХБ 20 компанийн бүх цаг үеийн ханшийн түүх (open.mse.mn)"
+          fi
+
+      - name: 5. Чарт гаргах
+        if: always() && inputs.chart != 'history_probe' && inputs.chart != 'history_backfill' && inputs.chart != 'excel'
+        run: |
+          C="$CHART"; [ -z "$C" ] && C=auto
+          python chart4.py "$C"
+
+      - name: 5b. Нийт өгөөжийн чарт (data/dividends.csv байвал — суваг руу илгээхгүй, хувийн чат руу)
+        if: always() && inputs.chart != 'history_probe' && inputs.chart != 'history_backfill' && inputs.chart != 'excel'
+        continue-on-error: true
+        run: |
+          if [ -f data/dividends.csv ]; then
+            C="$CHART"; [ -z "$C" ] && C=auto
+            REPORT_DIR=reports/total TOTAL_RETURN=1 python chart4.py "$C"
+            for k in monthly quarterly halfyearly yearly; do
+              [ -f reports/total/latest_$k.png ] && python alert.py --send-file reports/total/latest_$k.png "$(head -1 reports/total/latest_${k}_caption.txt)"
+            done
+          fi
+
+      - name: 6. Telegram суваг руу илгээх
+        if: always() && inputs.chart != 'history_probe' && inputs.chart != 'history_backfill' && inputs.chart != 'excel'
+        continue-on-error: true
+        run: |
+          for k in monthly quarterly halfyearly yearly; do
+            if [ -f reports/latest_$k.png ]; then
+              python send_telegram.py reports/latest_$k.txt --photo reports/latest_$k.png --caption reports/latest_${k}_caption.txt || true
+            fi
+          done
+
+      - name: 7. Үр дүнг хадгалах (commit)
+        if: always()
+        run: |
+          mkdir -p data reports
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add data reports
+          git diff --cached --quiet || git commit -m "chart4report $(date -u +%F)"
+          git push
+
+      - name: Алдааны мэдэгдэл (workflow унасан)
+        if: failure()
+        run: python alert.py "❌ chart4report workflow унасан (${CHART:-хуваарьт ажил}). Логийг шалгана уу."
